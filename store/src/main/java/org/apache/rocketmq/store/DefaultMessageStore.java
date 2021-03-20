@@ -63,33 +63,34 @@ import org.apache.rocketmq.store.index.QueryOffsetResult;
 import org.apache.rocketmq.store.schedule.ScheduleMessageService;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
+//P1 Broker进行消息存储的核心组件
 public class DefaultMessageStore implements MessageStore {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    //消息配置属性
     private final MessageStoreConfig messageStoreConfig;
-    // CommitLog
+    //P2 CommitLog
     private final CommitLog commitLog;
-
+    //消息队列存储缓存
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
-
+    //消息队列文件刷盘线程
     private final FlushConsumeQueueService flushConsumeQueueService;
-
+    //清除commitLog文件服务
     private final CleanCommitLogService cleanCommitLogService;
-
+    //清除consumeQueue文件服务
     private final CleanConsumeQueueService cleanConsumeQueueService;
-
+    //索引实现类
     private final IndexService indexService;
-
+    //MappedFile分配服务
     private final AllocateMappedFileService allocateMappedFileService;
-
+    //commitLog消息分发，根据commitLog文件来构建ConsumeQueue和indexFile文件
     private final ReputMessageService reputMessageService;
-
+    //存储HA机制
     private final HAService haService;
-
+    //消息服务调度线程
     private final ScheduleMessageService scheduleMessageService;
-
+    //消息存储服务
     private final StoreStatsService storeStatsService;
-
+    //消息堆外内存缓存
     private final TransientStorePool transientStorePool;
 
     private final RunningFlags runningFlags = new RunningFlags();
@@ -97,7 +98,9 @@ public class DefaultMessageStore implements MessageStore {
 
     private final ScheduledExecutorService scheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
+    //Broker状态管理器
     private final BrokerStatsManager brokerStatsManager;
+    //消息拉取长轮询模式消息达到监听器
     private final MessageArrivingListener messageArrivingListener;
     private final BrokerConfig brokerConfig;
 
@@ -178,13 +181,15 @@ public class DefaultMessageStore implements MessageStore {
     /**
      * @throws IOException
      */
+    //P1 Broker文件恢复的入口
     public boolean load() {
         boolean result = true;
 
         try {
+            //根据abort临时文件判断服务是否正常关闭
             boolean lastExitOK = !this.isTempFileExist();
             log.info("last shutdown {}", lastExitOK ? "normally" : "abnormally");
-
+            //P1 延迟消息：延迟消息处理服务加载
             if (null != scheduleMessageService) {
                 result = result && this.scheduleMessageService.load();
             }
@@ -261,6 +266,7 @@ public class DefaultMessageStore implements MessageStore {
             }
             log.info("[SetReputOffset] maxPhysicalPosInLogicQueue={} clMinOffset={} clMaxOffset={} clConfirmedOffset={}",
                 maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
+            //P2 Broker启动时会启动一个线程来更新ConsumerQueue索引文件
             this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
             this.reputMessageService.start();
 
@@ -277,7 +283,7 @@ public class DefaultMessageStore implements MessageStore {
             }
             this.recoverTopicQueueTable();
         }
-
+        // remark
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             this.haService.start();
             this.handleScheduleMessageService(messageStoreConfig.getBrokerRole());
@@ -288,6 +294,7 @@ public class DefaultMessageStore implements MessageStore {
         this.storeStatsService.start();
 
         this.createTempFile();
+        //P2 Broker启动删除过期文件的定时任务
         this.addScheduleTask();
         this.shutdown = false;
     }
@@ -474,6 +481,7 @@ public class DefaultMessageStore implements MessageStore {
         return resultFuture;
     }
 
+    //P2 Broker典型的存储消息的地方
     @Override
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
@@ -487,8 +495,10 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         long beginTime = this.getSystemClock().now();
+        //我们跟踪下这个最典型的消息写入commitLog的方法
         PutMessageResult result = this.commitLog.putMessage(msg);
         long elapsedTime = this.getSystemClock().now() - beginTime;
+        //是否超时
         if (elapsedTime > 500) {
             log.warn("not in lock elapsed time(ms)={}, bodyLength={}", elapsedTime, msg.getBody().length);
         }
@@ -1301,7 +1311,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void addScheduleTask() {
-
+        //P1 定时删除过期消息的任务
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -1351,7 +1361,9 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void cleanFilesPeriodically() {
+        //定期删除过期的commitLog
         this.cleanCommitLogService.run();
+        //定期删除过期的consumeQueue
         this.cleanConsumeQueueService.run();
     }
 
@@ -1502,7 +1514,7 @@ public class DefaultMessageStore implements MessageStore {
     public RunningFlags getRunningFlags() {
         return runningFlags;
     }
-
+    //P2 将commitLog写入的事件转发到ConsumeQueue和IndexFile
     public void doDispatch(DispatchRequest req) {
         for (CommitLogDispatcher dispatcher : this.dispatcherList) {
             dispatcher.dispatch(req);
@@ -1525,6 +1537,7 @@ public class DefaultMessageStore implements MessageStore {
             if (brokerRole == BrokerRole.SLAVE) {
                 this.scheduleMessageService.shutdown();
             } else {
+                //P1 remark
                 this.scheduleMessageService.start();
             }
         }
@@ -1938,16 +1951,19 @@ public class DefaultMessageStore implements MessageStore {
                         this.reputFromOffset = result.getStartOffset();
 
                         for (int readSize = 0; readSize < result.getSize() && doNext; ) {
+                            //从Commitlog中获取一个DispatchRequest，拿到一份需要进行转发的消息，也就是从commitLog
                             DispatchRequest dispatchRequest =
                                 DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false);
                             int size = dispatchRequest.getBufferSize() == -1 ? dispatchRequest.getMsgSize() : dispatchRequest.getBufferSize();
 
                             if (dispatchRequest.isSuccess()) {
                                 if (size > 0) {
+                                    //分发commitLog写入消息
                                     DefaultMessageStore.this.doDispatch(dispatchRequest);
-
+                                    //P2 长轮询：如果有消息到了主节点，并且开启了长轮询
                                     if (BrokerRole.SLAVE != DefaultMessageStore.this.getMessageStoreConfig().getBrokerRole()
                                         && DefaultMessageStore.this.brokerConfig.isLongPollingEnable()) {
+                                        //唤醒NotifyMessageArrivingListener的arriving方法，进行一次请求线程的检查
                                         DefaultMessageStore.this.messageArrivingListener.arriving(dispatchRequest.getTopic(),
                                             dispatchRequest.getQueueId(), dispatchRequest.getConsumeQueueOffset() + 1,
                                             dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(),
@@ -1994,6 +2010,7 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        //P2 每隔1毫秒，会往ConsumeQueue和IndexFile中转发一次CommitLog写入的消息
         @Override
         public void run() {
             DefaultMessageStore.log.info(this.getServiceName() + " service started");

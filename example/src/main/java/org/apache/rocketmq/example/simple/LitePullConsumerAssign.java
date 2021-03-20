@@ -37,7 +37,10 @@ public class LitePullConsumerAssign {
         for (int i = 0; i < list.size() / 2; i++) {
             assignList.add(list.get(i));
         }
+        //这个assign方法会启动消息拉取，执行一个PullTaskImpl
+        //这样下面的poll方法才能从缓存拉取消息
         litePullConsumer.assign(assignList);
+        //指定队列以及队列的offset
         litePullConsumer.seek(assignList.get(0), 10);
         try {
             while (running) {

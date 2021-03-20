@@ -29,7 +29,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-
+// P3 负载均衡消费策略
 public class AllocateMachineRoomNearByTest {
 
     private static final String CID_PREFIX = "CID-";

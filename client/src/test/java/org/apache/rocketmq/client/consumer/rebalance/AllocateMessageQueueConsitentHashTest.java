@@ -28,6 +28,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+//P3 类似redis的hash槽，broker到环中那个consume
 public class AllocateMessageQueueConsitentHashTest {
 
     private String topic;

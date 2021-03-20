@@ -28,6 +28,9 @@ public class LitePullConsumerSubscribe {
     public static void main(String[] args) throws Exception {
         DefaultLitePullConsumer litePullConsumer = new DefaultLitePullConsumer("lite_pull_consumer_test");
         litePullConsumer.setConsumeFromWhere(ConsumeFromWhere.CONSUME_FROM_FIRST_OFFSET);
+        // 这种轻量级的拉取模式消费者的核心启动过程在这个订阅方法里
+        // 订阅时就会启动定时任务去拉取消息，并存到本地缓存中
+        // 这样下面的poll方法就只要从缓存中拉取消息就可以了
         litePullConsumer.subscribe("TopicTest", "*");
         litePullConsumer.start();
         try {

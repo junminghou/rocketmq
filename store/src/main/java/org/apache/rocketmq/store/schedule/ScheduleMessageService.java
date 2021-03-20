@@ -109,8 +109,9 @@ public class ScheduleMessageService extends ConfigManager {
 
         return storeTimestamp + 1000;
     }
-
+    //P1 延迟消息服务的启动方法
     public void start() {
+        //CAS锁机制保证必须shutdown后才能再次start
         if (started.compareAndSet(false, true)) {
             this.timer = new Timer("ScheduleMessageTimerThread", true);
             for (Map.Entry<Integer, Long> entry : this.delayLevelTable.entrySet()) {
@@ -122,10 +123,11 @@ public class ScheduleMessageService extends ConfigManager {
                 }
 
                 if (timeDelay != null) {
+                    //定时执行延迟消息处理任务
                     this.timer.schedule(new DeliverDelayedMessageTimerTask(level, offset), FIRST_DELAY_TIME);
                 }
             }
-
+            //每隔10秒，将延迟消息持久化到硬盘中
             this.timer.scheduleAtFixedRate(new TimerTask() {
 
                 @Override
